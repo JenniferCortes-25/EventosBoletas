@@ -192,7 +192,7 @@ class DomainRulesTest {
         @Test
         @DisplayName("Pago APROBADO → boleto emitido con QR único")
         void pagoAprobado_emiteBoleto() {
-            Pago pago = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO);
+            Pago pago = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO, EstadoPago.APROBADO);
             Boleto boleto = Boleto.emitir(new BigDecimal("126000"), 1L, 2L, pago);
 
             assertThat(boleto.getCodigoQR()).isNotBlank();
@@ -216,8 +216,8 @@ class DomainRulesTest {
         @Test
         @DisplayName("Dos boletos emitidos tienen códigos QR distintos")
         void dosboletos_tienenQrUnicos() {
-            Pago p1 = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO);
-            Pago p2 = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO);
+            Pago p1 = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO, EstadoPago.APROBADO);
+            Pago p2 = Pago.crear(new BigDecimal("126000"), MetodoPago.EFECTIVO, EstadoPago.APROBADO);
             Boleto b1 = Boleto.emitir(new BigDecimal("126000"), 1L, 2L, p1);
             Boleto b2 = Boleto.emitir(new BigDecimal("126000"), 1L, 2L, p2);
 

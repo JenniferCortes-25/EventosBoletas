@@ -98,7 +98,7 @@ class ComprarBoletoUseCaseTest {
     }
 
     private Boleto boletoFake(Zona zona) {
-        Pago pago = Pago.crear(zona.calcularPrecioFinal(), MetodoPago.EFECTIVO);
+        Pago pago = Pago.crear(zona.calcularPrecioFinal(), MetodoPago.EFECTIVO, EstadoPago.APROBADO);
         Boleto b  = Boleto.emitir(zona.calcularPrecioFinal(), ID_CLIENTE_ACTIVO, zona.getId(), pago);
         b.asignarId(100L);
         return b;
@@ -202,7 +202,7 @@ class ComprarBoletoUseCaseTest {
         when(zonaRepository.buscarPorId(ID_ZONA_AGOTADA)).thenReturn(Optional.of(zonaAgotada()));
 
         ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_ACTIVO, ID_EVENTO_ACTIVO, ID_ZONA_AGOTADA, MetodoPago.TARJETA);
+                ID_CLIENTE_ACTIVO, ID_EVENTO_ACTIVO, ID_ZONA_AGOTADA, MetodoPago.TARJETA_DEBITO);
 
         // WHEN + THEN
         assertThatThrownBy(() -> sut.ejecutar(request))
