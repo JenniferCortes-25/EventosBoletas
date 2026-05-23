@@ -1,5 +1,6 @@
 package co.uniquindio.eventoboletas.domain.entities;
 
+import co.uniquindio.eventoboletas.domain.enums.MetodoPago;
 import co.uniquindio.eventoboletas.domain.exceptions.ReglaDeNegocioException;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -11,8 +12,8 @@ import java.util.Objects;
 /**
  * Entidad de dominio Zona.
  *
- * RN-03: cupoDisponible > 0 para confirmar compra.
- * RN-04: precioFinal = precioBase × (1 + recargoPorcentaje) — calculado en dominio.
+ * RN-03: cupoDisponible >= cantidad solicitada para confirmar compra.
+ * RN-04: precioFinal = precioBase × (1 + recargo_zona + recargo_metodoPago) — calculado en dominio.
  *
  * Invariante: cupoDisponible no puede ser negativo ni superar cupoTotal.
  */
@@ -51,33 +52,69 @@ public class Zona {
         return new Zona(id, nombre, precioBase, recargoPorcentaje, cupoTotal, cupoDisponible, eventoId);
     }
 
+    // -------------------------------------------------------------------------
+    // RN-04 — Cálculo de precio
+    // -------------------------------------------------------------------------
+
     /**
-     * RN-04: El precio final se calcula siempre en el dominio (servidor).
-     * No puede ser modificado manualmente desde el exterior.
+     * RN-04: precioFinal = precioBase × (1 + recargo_zona + recargo_metodoPago).
+     * El recargo del método de pago se suma al recargo propio de la zona.
+     * EFECTIVO tiene recargoPorcentaje = 0, por lo que no añade nada.
+     * Calculado siempre en el dominio (servidor) — nunca en el cliente.
+     */
+    public BigDecimal calcularPrecioFinal(MetodoPago metodoPago) {
+        BigDecimal recargoCombinado = this.recargoPorcentaje
+                .add(metodoPago.getRecargoPorcentaje());
+        return precioBase.multiply(BigDecimal.ONE.add(recargoCombinado))
+                         .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Sobrecarga de compatibilidad para código o tests que calculen sin método de pago.
+     * Usa únicamente el recargo base de la zona (sin recargo de método de pago).
      */
     public BigDecimal calcularPrecioFinal() {
         return precioBase.multiply(BigDecimal.ONE.add(recargoPorcentaje))
                          .setScale(2, RoundingMode.HALF_UP);
     }
 
+    // -------------------------------------------------------------------------
+    // RN-03 — Validación y reducción de cupo
+    // -------------------------------------------------------------------------
+
     /**
-     * RN-03: Verifica que haya cupo antes de confirmar.
+     * RN-03: Verifica que haya cupo suficiente para la cantidad solicitada.
      */
-    public void verificarCupoDisponible() {
-        if (this.cupoDisponible <= 0) {
+    public void verificarCupoDisponible(int cantidad) {
+        if (this.cupoDisponible < cantidad) {
             throw new ReglaDeNegocioException(
-                "No hay boletos disponibles para esta zona."
+                "No hay suficientes boletos disponibles para esta zona. " +
+                "Disponibles: " + this.cupoDisponible + ", solicitados: " + cantidad + "."
             );
         }
     }
 
     /**
-     * Reduce el cupo en 1 al emitir un boleto.
+     * RN-03: Sobrecarga de compatibilidad — verifica cupo para 1 boleto.
+     */
+    public void verificarCupoDisponible() {
+        verificarCupoDisponible(1);
+    }
+
+    /**
+     * Reduce el cupo en {@code cantidad} unidades al emitir boletos.
      * Invariante: cupoDisponible >= 0.
      */
+    public void reducirCupo(int cantidad) {
+        verificarCupoDisponible(cantidad);
+        this.cupoDisponible -= cantidad;
+    }
+
+    /**
+     * Sobrecarga de compatibilidad — reduce cupo en 1.
+     */
     public void reducirCupo() {
-        verificarCupoDisponible();
-        this.cupoDisponible--;
+        reducirCupo(1);
     }
 
     public void asignarId(Long id) {
@@ -85,8 +122,11 @@ public class Zona {
     }
 
     private void validarInvariantes() {
-        if (cupoDisponible < 0) throw new IllegalArgumentException("El cupo disponible no puede ser negativo");
-        if (cupoDisponible > cupoTotal) throw new IllegalArgumentException("El cupo disponible no puede superar el cupo total");
-        if (precioBase.compareTo(BigDecimal.ZERO) <= 0) throw new IllegalArgumentException("El precio base debe ser positivo");
+        if (cupoDisponible < 0)
+            throw new IllegalArgumentException("El cupo disponible no puede ser negativo");
+        if (cupoDisponible > cupoTotal)
+            throw new IllegalArgumentException("El cupo disponible no puede superar el cupo total");
+        if (precioBase.compareTo(BigDecimal.ZERO) <= 0)
+            throw new IllegalArgumentException("El precio base debe ser positivo");
     }
 }
