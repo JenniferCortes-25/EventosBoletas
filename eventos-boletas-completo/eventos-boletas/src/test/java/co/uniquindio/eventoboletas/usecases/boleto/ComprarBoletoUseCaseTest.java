@@ -77,13 +77,6 @@ class ComprarBoletoUseCaseTest {
                 50, 0, 1L);
     }
 
-    private Boleto boletoFake(BigDecimal precio) {
-        Pago pago = Pago.crear(precio, MetodoPago.EFECTIVO, EstadoPago.APROBADO);
-        Boleto b  = Boleto.emitir(precio, 1L, 2L, pago);
-        b.asignarId(100L);
-        return b;
-    }
-
     private void stubFlujoFeliz(Zona zona) {
         when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
         when(eventoRepository.buscarPorId(1L)).thenReturn(Optional.of(eventoActivo()));
@@ -228,31 +221,31 @@ class ComprarBoletoUseCaseTest {
         // Zona General: precioBase=120.000, recargo_zona=5%
 
         @Test
-        @DisplayName("EFECTIVO (0%): precioFinal = 120.000 × 1.05 = 126.000")
+        @DisplayName("EFECTIVO (0%): precioFinal = 120.000 * 1.05 = 126.000")
         void efectivo_precioSinRecargoMetodo() {
             verificarPrecio(MetodoPago.EFECTIVO, "126000.00");
         }
 
         @Test
-        @DisplayName("PSE (1%): precioFinal = 120.000 × 1.06 = 127.200")
+        @DisplayName("PSE (1%): precioFinal = 120.000 * 1.06 = 127.200")
         void pse_precioConRecargo1pct() {
             verificarPrecio(MetodoPago.PSE, "127200.00");
         }
 
         @Test
-        @DisplayName("TARJETA_DEBITO (2%): precioFinal = 120.000 × 1.07 = 128.400")
+        @DisplayName("TARJETA_DEBITO (2%): precioFinal = 120.000 * 1.07 = 128.400")
         void debito_precioConRecargo2pct() {
             verificarPrecio(MetodoPago.TARJETA_DEBITO, "128400.00");
         }
 
         @Test
-        @DisplayName("TRANSFERENCIA (1.5%): precioFinal = 120.000 × 1.065 = 127.800")
+        @DisplayName("TRANSFERENCIA (1.5%): precioFinal = 120.000 * 1.065 = 127.800")
         void transferencia_precioConRecargo1_5pct() {
             verificarPrecio(MetodoPago.TRANSFERENCIA, "127800.00");
         }
 
         @Test
-        @DisplayName("TARJETA_CREDITO (5%): precioFinal = 120.000 × 1.10 = 132.000")
+        @DisplayName("TARJETA_CREDITO (5%): precioFinal = 120.000 * 1.10 = 132.000")
         void credito_precioConRecargo5pct() {
             verificarPrecio(MetodoPago.TARJETA_CREDITO, "132000.00");
         }

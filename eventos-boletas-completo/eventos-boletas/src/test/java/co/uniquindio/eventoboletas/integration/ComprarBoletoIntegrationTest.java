@@ -1,6 +1,5 @@
 package co.uniquindio.eventoboletas.integration;
 
-import co.uniquindio.eventoboletas.domain.enums.MetodoPago;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
