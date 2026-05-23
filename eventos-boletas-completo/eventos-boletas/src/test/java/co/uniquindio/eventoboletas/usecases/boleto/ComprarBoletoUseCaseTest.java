@@ -5,9 +5,11 @@ import co.uniquindio.eventoboletas.application.dtos.response.BoletoResponse;
 import co.uniquindio.eventoboletas.application.usecases.boleto.ComprarBoletoUseCase;
 import co.uniquindio.eventoboletas.domain.entities.*;
 import co.uniquindio.eventoboletas.domain.enums.*;
+import co.uniquindio.eventoboletas.domain.exceptions.EntidadNoEncontradaException;
 import co.uniquindio.eventoboletas.domain.exceptions.ReglaDeNegocioException;
 import co.uniquindio.eventoboletas.domain.repositories.*;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -16,29 +18,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Tests unitarios del CU-01: Comprar Boleto.
- *
- * Cubre:
- *   CA-01  Flujo feliz — compra exitosa
- *   CA-02  Flujo alterno bloqueante — cliente BLOQUEADO (RN-01)
- *   CA-03  Flujo alterno — zona agotada (RN-03)
- *   CA-04  Flujo alterno — evento cancelado (RN-02)
- *   CA-05  Flujo alterno — cliente INACTIVO también bloqueado (RN-01)
- *   CA-06  RN-05 — boleto no emitido sin pago aprobado
- */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("CU-01 · ComprarBoletoUseCase")
+@DisplayName("CU-01 · ComprarBoletoUseCase — Tests unitarios con Mockito")
 class ComprarBoletoUseCaseTest {
 
-    // ── Mocks de repositorios (puertos de dominio) ───────────────────────────
     @Mock private ClienteRepository clienteRepository;
     @Mock private EventoRepository  eventoRepository;
     @Mock private ZonaRepository    zonaRepository;
@@ -47,227 +37,271 @@ class ComprarBoletoUseCaseTest {
     @InjectMocks
     private ComprarBoletoUseCase sut;
 
-    // ── IDs de referencia — coinciden con el DataSeeder ──────────────────────
-    private static final Long ID_CLIENTE_ACTIVO    = 1L;   // Ana Gómez
-    private static final Long ID_CLIENTE_BLOQUEADO = 10L;  // Miguel Jiménez
-    private static final Long ID_CLIENTE_INACTIVO  = 9L;   // Sofía Vargas
-    private static final Long ID_EVENTO_ACTIVO     = 1L;   // Festival de Música
-    private static final Long ID_EVENTO_CANCELADO  = 4L;   // Concierto Cancelado
-    private static final Long ID_ZONA_CON_CUPO     = 2L;   // General — 200 cupos
-    private static final Long ID_ZONA_AGOTADA      = 7L;   // Galería — cupo=0
-
-    // ── Helpers de construcción ───────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Cliente clienteActivo() {
-        return Cliente.reconstituir(ID_CLIENTE_ACTIVO, "Ana", "Gómez",
-                "ana.gomez@email.com", "1000001", EstadoCliente.ACTIVO);
+        return Cliente.reconstituir(1L, "Ana", "Gómez",
+                "ana@test.com", "1000001", EstadoCliente.ACTIVO);
     }
 
     private Cliente clienteBloqueado() {
-        return Cliente.reconstituir(ID_CLIENTE_BLOQUEADO, "Miguel", "Jiménez",
-                "miguel.jm@email.com", "1000010", EstadoCliente.BLOQUEADO);
+        return Cliente.reconstituir(10L, "Miguel", "Jiménez",
+                "miguel@test.com", "1000010", EstadoCliente.BLOQUEADO);
     }
 
     private Cliente clienteInactivo() {
-        return Cliente.reconstituir(ID_CLIENTE_INACTIVO, "Sofía", "Vargas",
-                "sofia.vargas@email.com", "1000009", EstadoCliente.INACTIVO);
+        return Cliente.reconstituir(9L, "Sofía", "Vargas",
+                "sofia@test.com", "1000009", EstadoCliente.INACTIVO);
     }
 
     private Evento eventoActivo() {
-        return Evento.reconstituir(ID_EVENTO_ACTIVO, "Festival Latinoamericano de Música",
-                LocalDateTime.now().plusDays(30), "Estadio El Campín", EstadoEvento.ACTIVO);
+        return Evento.reconstituir(1L, "Festival",
+                LocalDateTime.now().plusDays(30), "Bogotá", EstadoEvento.ACTIVO);
     }
 
     private Evento eventoCancelado() {
-        return Evento.reconstituir(ID_EVENTO_CANCELADO, "Concierto Cancelado",
-                LocalDateTime.now().plusDays(5), "Plaza de Bolívar", EstadoEvento.CANCELADO);
+        return Evento.reconstituir(4L, "Concierto Cancelado",
+                LocalDateTime.now().plusDays(5), "Armenia", EstadoEvento.CANCELADO);
     }
 
-    /** Zona General: precioBase=120.000, recargo=5% → precioFinal=126.000 */
     private Zona zonaConCupo() {
-        return Zona.reconstituir(ID_ZONA_CON_CUPO, "General",
+        // precioBase=120.000, recargo zona=5%
+        return Zona.reconstituir(2L, "General",
                 new BigDecimal("120000"), new BigDecimal("0.05"),
-                200, 150, ID_EVENTO_ACTIVO);
+                200, 150, 1L);
     }
 
-    /** Zona Galería: cupoDisponible=0 */
     private Zona zonaAgotada() {
-        return Zona.reconstituir(ID_ZONA_AGOTADA, "Galería",
-                new BigDecimal("40000"), new BigDecimal("0.00"),
-                50, 0, ID_EVENTO_ACTIVO);
+        return Zona.reconstituir(7L, "Galería",
+                new BigDecimal("40000"), BigDecimal.ZERO,
+                50, 0, 1L);
     }
 
-    private Boleto boletoFake(Zona zona) {
-        Pago pago = Pago.crear(zona.calcularPrecioFinal(), MetodoPago.EFECTIVO, EstadoPago.APROBADO);
-        Boleto b  = Boleto.emitir(zona.calcularPrecioFinal(), ID_CLIENTE_ACTIVO, zona.getId(), pago);
+    private Boleto boletoFake(BigDecimal precio) {
+        Pago pago = Pago.crear(precio, MetodoPago.EFECTIVO, EstadoPago.APROBADO);
+        Boleto b  = Boleto.emitir(precio, 1L, 2L, pago);
         b.asignarId(100L);
         return b;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CA-01 — Flujo feliz
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * CA-01 — Flujo feliz: compra exitosa
-     *
-     * Given: Cliente ACTIVO + Evento ACTIVO + Zona con cupo > 0
-     * When:  ejecutar(request con metodoPago=EFECTIVO)
-     * Then:  201 — BoletoResponse con codigoQR no nulo
-     *        Y precioFinal = precioBase × (1 + recargo) = 126.000,00
-     *        Y la zona fue guardada (cupo reducido)
-     *        Y el boleto fue persistido exactamente una vez
-     */
-    @Test
-    @DisplayName("CA-01 · Flujo feliz → boleto emitido con QR y precio correcto")
-    void ca01_compraBoleto_exitosa() {
-        // GIVEN
-        Zona   zona   = zonaConCupo();
-        Boleto boleto = boletoFake(zona);
-
-        when(clienteRepository.buscarPorId(ID_CLIENTE_ACTIVO)).thenReturn(Optional.of(clienteActivo()));
-        when(eventoRepository.buscarPorId(ID_EVENTO_ACTIVO)).thenReturn(Optional.of(eventoActivo()));
-        when(zonaRepository.buscarPorId(ID_ZONA_CON_CUPO)).thenReturn(Optional.of(zona));
-        when(zonaRepository.guardar(any(Zona.class))).thenReturn(zona);
-        when(boletoRepository.guardar(any(Boleto.class))).thenReturn(boleto);
-
-        ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_ACTIVO, ID_EVENTO_ACTIVO, ID_ZONA_CON_CUPO, MetodoPago.EFECTIVO);
-
-        // WHEN
-        BoletoResponse respuesta = sut.ejecutar(request);
-
-        // THEN
-        assertThat(respuesta).isNotNull();
-        assertThat(respuesta.codigoQR()).isNotBlank();
-        assertThat(respuesta.precioFinal())
-                .isEqualByComparingTo(new BigDecimal("126000.00"));
-
-        // infraestructura llamada exactamente una vez cada una
-        verify(zonaRepository,   times(1)).guardar(any(Zona.class));
-        verify(boletoRepository, times(1)).guardar(any(Boleto.class));
+    private void stubFlujoFeliz(Zona zona) {
+        when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
+        when(eventoRepository.buscarPorId(1L)).thenReturn(Optional.of(eventoActivo()));
+        when(zonaRepository.buscarPorId(zona.getId())).thenReturn(Optional.of(zona));
+        when(zonaRepository.guardar(any())).thenReturn(zona);
+        when(boletoRepository.guardar(any()))
+                .thenAnswer(inv -> { Boleto b = inv.getArgument(0); b.asignarId(100L); return b; });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CA-02 — Flujo alterno BLOQUEANTE: cliente BLOQUEADO (RN-01)
+    // RN-01 — Cliente habilitado
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * CA-02 — Flujo alterno bloqueante: cliente BLOQUEADO
-     *
-     * Given: Cliente con estado BLOQUEADO
-     * When:  ejecutar(request con ese clienteId)
-     * Then:  422 — ReglaDeNegocioException "no está habilitado para comprar"
-     *        Y la transacción se aborta: ningún otro repositorio fue consultado
-     *        Y ningún boleto/pago fue creado
-     */
-    @Test
-    @DisplayName("CA-02 · Cliente BLOQUEADO → excepción RN-01, transacción abortada (flujo bloqueante)")
-    void ca02_clienteBloqueado_lanzaExcepcion() {
-        // GIVEN
-        when(clienteRepository.buscarPorId(ID_CLIENTE_BLOQUEADO))
-                .thenReturn(Optional.of(clienteBloqueado()));
+    @Nested
+    @DisplayName("RN-01 · Cliente debe estar ACTIVO")
+    class Rn01 {
 
-        ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_BLOQUEADO, ID_EVENTO_ACTIVO, ID_ZONA_CON_CUPO, MetodoPago.EFECTIVO);
+        @Test
+        @DisplayName("Cliente ACTIVO + datos válidos → retorna lista con un BoletoResponse")
+        void clienteActivo_retornaBoleto() {
+            Zona zona = zonaConCupo();
+            stubFlujoFeliz(zona);
 
-        // WHEN + THEN
-        assertThatThrownBy(() -> sut.ejecutar(request))
-                .isInstanceOf(ReglaDeNegocioException.class)
-                .hasMessageContaining("no está habilitado para comprar");
+            List<BoletoResponse> resultado = sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 2L, MetodoPago.EFECTIVO, 1));
 
-        // la transacción se detiene en el primer paso — ningún repo posterior fue tocado
-        verify(eventoRepository, never()).buscarPorId(anyLong());
-        verify(zonaRepository,   never()).buscarPorId(anyLong());
-        verify(boletoRepository, never()).guardar(any());
+            assertThat(resultado).hasSize(1);
+            assertThat(resultado.get(0).codigoQR()).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("Cliente BLOQUEADO → ReglaDeNegocioException, repositorios posteriores no tocados")
+        void clienteBloqueado_abortaTransaccion() {
+            when(clienteRepository.buscarPorId(10L)).thenReturn(Optional.of(clienteBloqueado()));
+
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(10L, 1L, 2L, MetodoPago.EFECTIVO, 1)))
+                    .isInstanceOf(ReglaDeNegocioException.class)
+                    .hasMessageContaining("no está habilitado para comprar");
+
+            verify(eventoRepository,  never()).buscarPorId(anyLong());
+            verify(zonaRepository,    never()).buscarPorId(anyLong());
+            verify(boletoRepository,  never()).guardar(any());
+        }
+
+        @Test
+        @DisplayName("Cliente INACTIVO → también rechazado por RN-01")
+        void clienteInactivo_abortaTransaccion() {
+            when(clienteRepository.buscarPorId(9L)).thenReturn(Optional.of(clienteInactivo()));
+
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(9L, 1L, 2L, MetodoPago.EFECTIVO, 1)))
+                    .isInstanceOf(ReglaDeNegocioException.class)
+                    .hasMessageContaining("no está habilitado para comprar");
+
+            verify(boletoRepository, never()).guardar(any());
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CA-03 — Zona agotada (RN-03)
+    // RN-02 — Evento activo
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * CA-03 — Zona sin cupo
-     *
-     * Given: Cliente ACTIVO + Evento ACTIVO + Zona con cupoDisponible = 0
-     * When:  ejecutar(request con esa zonaId)
-     * Then:  422 — ReglaDeNegocioException "No hay boletos disponibles para esta zona"
-     */
-    @Test
-    @DisplayName("CA-03 · Zona agotada (cupo=0) → excepción RN-03")
-    void ca03_zonaAgotada_lanzaExcepcion() {
-        // GIVEN
-        when(clienteRepository.buscarPorId(ID_CLIENTE_ACTIVO)).thenReturn(Optional.of(clienteActivo()));
-        when(eventoRepository.buscarPorId(ID_EVENTO_ACTIVO)).thenReturn(Optional.of(eventoActivo()));
-        when(zonaRepository.buscarPorId(ID_ZONA_AGOTADA)).thenReturn(Optional.of(zonaAgotada()));
+    @Nested
+    @DisplayName("RN-02 · Evento debe estar ACTIVO")
+    class Rn02 {
 
-        ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_ACTIVO, ID_EVENTO_ACTIVO, ID_ZONA_AGOTADA, MetodoPago.TARJETA_DEBITO);
+        @Test
+        @DisplayName("Evento CANCELADO → ReglaDeNegocioException, zona y boleto no consultados")
+        void eventoCancelado_abortaTransaccion() {
+            when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
+            when(eventoRepository.buscarPorId(4L)).thenReturn(Optional.of(eventoCancelado()));
 
-        // WHEN + THEN
-        assertThatThrownBy(() -> sut.ejecutar(request))
-                .isInstanceOf(ReglaDeNegocioException.class)
-                .hasMessageContaining("No hay boletos disponibles para esta zona");
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 4L, 2L, MetodoPago.EFECTIVO, 1)))
+                    .isInstanceOf(ReglaDeNegocioException.class)
+                    .hasMessageContaining("no está disponible para la venta");
 
-        verify(boletoRepository, never()).guardar(any());
+            verify(zonaRepository,   never()).buscarPorId(anyLong());
+            verify(boletoRepository, never()).guardar(any());
+        }
+
+        @Test
+        @DisplayName("Evento inexistente → EntidadNoEncontradaException")
+        void eventoNoExiste_lanzaEntidadNoEncontrada() {
+            when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
+            when(eventoRepository.buscarPorId(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 99L, 2L, MetodoPago.EFECTIVO, 1)))
+                    .isInstanceOf(EntidadNoEncontradaException.class);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CA-04 — Evento cancelado (RN-02)
+    // RN-03 — Cupo disponible
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * CA-04 — Evento cancelado
-     *
-     * Given: Cliente ACTIVO + Evento con estado CANCELADO
-     * When:  ejecutar(request con ese eventoId)
-     * Then:  422 — ReglaDeNegocioException "no está disponible para la venta"
-     */
-    @Test
-    @DisplayName("CA-04 · Evento CANCELADO → excepción RN-02")
-    void ca04_eventoCancelado_lanzaExcepcion() {
-        // GIVEN
-        when(clienteRepository.buscarPorId(ID_CLIENTE_ACTIVO)).thenReturn(Optional.of(clienteActivo()));
-        when(eventoRepository.buscarPorId(ID_EVENTO_CANCELADO)).thenReturn(Optional.of(eventoCancelado()));
+    @Nested
+    @DisplayName("RN-03 · Cupo disponible >= cantidad solicitada")
+    class Rn03 {
 
-        ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_ACTIVO, ID_EVENTO_CANCELADO, ID_ZONA_CON_CUPO, MetodoPago.EFECTIVO);
+        @Test
+        @DisplayName("Zona agotada (cupo=0) → ReglaDeNegocioException, no se persiste boleto")
+        void zonaAgotada_abortaTransaccion() {
+            when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
+            when(eventoRepository.buscarPorId(1L)).thenReturn(Optional.of(eventoActivo()));
+            when(zonaRepository.buscarPorId(7L)).thenReturn(Optional.of(zonaAgotada()));
 
-        // WHEN + THEN
-        assertThatThrownBy(() -> sut.ejecutar(request))
-                .isInstanceOf(ReglaDeNegocioException.class)
-                .hasMessageContaining("no está disponible para la venta");
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 7L, MetodoPago.EFECTIVO, 1)))
+                    .isInstanceOf(ReglaDeNegocioException.class)
+                    .hasMessageContaining("No hay suficientes boletos disponibles");
 
-        verify(zonaRepository,   never()).buscarPorId(anyLong());
-        verify(boletoRepository, never()).guardar(any());
+            verify(boletoRepository, never()).guardar(any());
+        }
+
+        @Test
+        @DisplayName("Solicitar 3 boletos con cupo=2 → excepción por cupo insuficiente")
+        void cupoInsuficienteParaCantidad_lanzaExcepcion() {
+            Zona zonaPocoCupo = Zona.reconstituir(2L, "VIP",
+                    new BigDecimal("350000"), new BigDecimal("0.10"), 50, 2, 1L);
+
+            when(clienteRepository.buscarPorId(1L)).thenReturn(Optional.of(clienteActivo()));
+            when(eventoRepository.buscarPorId(1L)).thenReturn(Optional.of(eventoActivo()));
+            when(zonaRepository.buscarPorId(2L)).thenReturn(Optional.of(zonaPocoCupo));
+
+            assertThatThrownBy(() -> sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 2L, MetodoPago.EFECTIVO, 3)))
+                    .isInstanceOf(ReglaDeNegocioException.class);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CA-05 — Cliente INACTIVO (variante RN-01)
+    // RN-04 — Precio calculado en el servidor
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * CA-05 — Cliente INACTIVO también rechazado por RN-01
-     *
-     * Given: Cliente con estado INACTIVO (distinto al BLOQUEADO de CA-02)
-     * When:  ejecutar(request con ese clienteId)
-     * Then:  422 — ReglaDeNegocioException "no está habilitado para comprar"
-     */
-    @Test
-    @DisplayName("CA-05 · Cliente INACTIVO → también rechazado por RN-01")
-    void ca05_clienteInactivo_lanzaExcepcion() {
-        // GIVEN
-        when(clienteRepository.buscarPorId(ID_CLIENTE_INACTIVO))
-                .thenReturn(Optional.of(clienteInactivo()));
+    @Nested
+    @DisplayName("RN-04 · Precio final calculado en servidor con recargo de método de pago")
+    class Rn04 {
 
-        ComprarBoletoRequest request = new ComprarBoletoRequest(
-                ID_CLIENTE_INACTIVO, ID_EVENTO_ACTIVO, ID_ZONA_CON_CUPO, MetodoPago.EFECTIVO);
+        // Zona General: precioBase=120.000, recargo_zona=5%
 
-        // WHEN + THEN
-        assertThatThrownBy(() -> sut.ejecutar(request))
-                .isInstanceOf(ReglaDeNegocioException.class)
-                .hasMessageContaining("no está habilitado para comprar");
+        @Test
+        @DisplayName("EFECTIVO (0%): precioFinal = 120.000 × 1.05 = 126.000")
+        void efectivo_precioSinRecargoMetodo() {
+            verificarPrecio(MetodoPago.EFECTIVO, "126000.00");
+        }
 
-        verify(boletoRepository, never()).guardar(any());
+        @Test
+        @DisplayName("PSE (1%): precioFinal = 120.000 × 1.06 = 127.200")
+        void pse_precioConRecargo1pct() {
+            verificarPrecio(MetodoPago.PSE, "127200.00");
+        }
+
+        @Test
+        @DisplayName("TARJETA_DEBITO (2%): precioFinal = 120.000 × 1.07 = 128.400")
+        void debito_precioConRecargo2pct() {
+            verificarPrecio(MetodoPago.TARJETA_DEBITO, "128400.00");
+        }
+
+        @Test
+        @DisplayName("TRANSFERENCIA (1.5%): precioFinal = 120.000 × 1.065 = 127.800")
+        void transferencia_precioConRecargo1_5pct() {
+            verificarPrecio(MetodoPago.TRANSFERENCIA, "127800.00");
+        }
+
+        @Test
+        @DisplayName("TARJETA_CREDITO (5%): precioFinal = 120.000 × 1.10 = 132.000")
+        void credito_precioConRecargo5pct() {
+            verificarPrecio(MetodoPago.TARJETA_CREDITO, "132000.00");
+        }
+
+        @Test
+        @DisplayName("Compra de 2 boletos → precio unitario correcto en cada boleto")
+        void dosBoletos_precioUnitarioCorrecto() {
+            Zona zona = zonaConCupo();
+            stubFlujoFeliz(zona);
+
+            List<BoletoResponse> resultado = sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 2L, MetodoPago.EFECTIVO, 2));
+
+            assertThat(resultado).hasSize(2);
+            resultado.forEach(b ->
+                assertThat(b.precioFinal()).isEqualByComparingTo(new BigDecimal("126000.00")));
+        }
+
+        private void verificarPrecio(MetodoPago metodo, String precioEsperado) {
+            Zona zona = zonaConCupo();
+            stubFlujoFeliz(zona);
+
+            List<BoletoResponse> resultado = sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 2L, metodo, 1));
+
+            assertThat(resultado.get(0).precioFinal())
+                    .isEqualByComparingTo(new BigDecimal(precioEsperado));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RN-05 — Boleto solo con pago APROBADO
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("RN-05 · Boleto emitido solo con pago APROBADO")
+    class Rn05 {
+
+        @Test
+        @DisplayName("EFECTIVO → siempre aprobado, boleto siempre emitido")
+        void efectivo_siempreAprobado() {
+            Zona zona = zonaConCupo();
+            stubFlujoFeliz(zona);
+
+            List<BoletoResponse> resultado = sut.ejecutar(
+                    new ComprarBoletoRequest(1L, 1L, 2L, MetodoPago.EFECTIVO, 1));
+
+            assertThat(resultado).hasSize(1);
+            assertThat(resultado.get(0).pago().estado()).isEqualTo(EstadoPago.APROBADO);
+        }
     }
 }

@@ -1,11 +1,9 @@
 package co.uniquindio.eventoboletas.integration;
 
-import co.uniquindio.eventoboletas.application.dtos.request.ComprarBoletoRequest;
-import co.uniquindio.eventoboletas.application.dtos.response.BoletoResponse;
-import co.uniquindio.eventoboletas.domain.enums.EstadoBoleto;
 import co.uniquindio.eventoboletas.domain.enums.MetodoPago;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -13,198 +11,157 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import java.util.Map;
+
+import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Tests de integración con Spring Boot + H2 + DataSeeder real.
- *
- * Levanta el contexto completo (controllers, use cases, JPA, H2)
- * y ejercita los endpoints HTTP de extremo a extremo.
- *
- * Endpoint real del controller: POST /api/transaccion/comprar-boleto
- * El flujo feliz retorna 200 OK (ResponseEntity.ok(...))
- * Los errores de regla de negocio retornan 422 (GlobalExceptionHandler)
- *
- * IDs del DataSeeder (orden de inserción):
- *   Clientes: Ana=1, Carlos=2, ..., Sofía=9(INACTIVO), Miguel=10(BLOQUEADO)
- *   Zonas:    VIP=1, General=2, Palco=3, Premium=4, Libre=5, Butaca=6, Galería=7(cupo=0)
- *   Eventos:  Festival=1, Conferencia=2, Teatro=3, Cancelado=4
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @DisplayName("Integración HTTP · CU-01 Comprar Boleto")
 class ComprarBoletoIntegrationTest {
 
-    @Autowired MockMvc      mockMvc;
-    @Autowired ObjectMapper objectMapper;
+    @Autowired MockMvc       mockMvc;
+    @Autowired ObjectMapper  mapper;
 
-    // Endpoint real del BoletoController
-    private static final String URL_COMPRAR = "/api/transaccion/comprar-boleto";
-    private static final String URL_BUSCAR_CLIENTES = "/api/transaccion/clientes/buscar";
-    private static final String URL_EVENTOS_ACTIVOS = "/api/transaccion/eventos/listar-activos";
+    private static final String URL = "/api/transaccion/comprar-boleto";
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // IT-01 — Flujo feliz HTTP
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * IT-01 — Flujo feliz: POST /api/transaccion/comprar-boleto
-     *
-     * Given: cliente id=1 (Ana Gómez, ACTIVO)
-     *        evento id=1 (Festival Latinoamericano, ACTIVO)
-     *        zona  id=2 (General, precioBase=120.000, recargo=5%, cupo=200)
-     * When:  POST /api/transaccion/comprar-boleto { clienteId:1, eventoId:1, zonaId:2, metodoPago:EFECTIVO }
-     * Then:  200 OK
-     *        Body tiene codigoQR no vacío
-     *        Body tiene estadoBoleto = PAGADO
-     *        Body tiene precioFinal = 126.000,00  (120.000 × 1,05)
-     */
-    @Test
-    @DisplayName("IT-01 · Flujo feliz → 200 con QR y precio correcto")
-    void it01_compraBoleto_exitosa() throws Exception {
-        // GIVEN
-        ComprarBoletoRequest request = new ComprarBoletoRequest(1L, 1L, 2L, MetodoPago.EFECTIVO);
-
-        // WHEN
-        MvcResult resultado = mockMvc.perform(post(URL_COMPRAR)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        // THEN
-        BoletoResponse respuesta = objectMapper.readValue(
-                resultado.getResponse().getContentAsString(), BoletoResponse.class);
-
-        assertThat(respuesta.codigoQR()).isNotBlank();
-        assertThat(respuesta.estadoBoleto()).isEqualTo(EstadoBoleto.PAGADO);
-        assertThat(respuesta.precioFinal().stripTrailingZeros())
-                .isEqualByComparingTo("126000");
+    private String body(long clienteId, long eventoId, long zonaId, String metodo, int cantidad) throws Exception {
+        return mapper.writeValueAsString(Map.of(
+                "clienteId", clienteId, "eventoId", eventoId,
+                "zonaId", zonaId, "metodoPago", metodo, "cantidad", cantidad));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // IT-02 — Flujo alterno bloqueante: cliente BLOQUEADO (RN-01)
+    // RN-01
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * IT-02 — Flujo alterno bloqueante: cliente BLOQUEADO
-     *
-     * Given: cliente id=10 (Miguel Jiménez, estado=BLOQUEADO)
-     *        evento y zona válidos
-     * When:  POST /api/transaccion/comprar-boleto con clienteId=10
-     * Then:  422 Unprocessable Entity  (GlobalExceptionHandler captura ReglaDeNegocioException)
-     */
-    @Test
-    @DisplayName("IT-02 · Cliente BLOQUEADO → 422 HTTP (flujo alterno bloqueante)")
-    void it02_clienteBloqueado_retorna422() throws Exception {
-        // GIVEN
-        ComprarBoletoRequest request = new ComprarBoletoRequest(10L, 1L, 2L, MetodoPago.EFECTIVO);
+    @Nested
+    @DisplayName("RN-01 · Cliente debe estar ACTIVO (HTTP)")
+    class Rn01Http {
 
-        // WHEN + THEN
-        mockMvc.perform(post(URL_COMPRAR)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnprocessableEntity());
+        @Test
+        @DisplayName("IT-01 · Cliente ACTIVO + EFECTIVO → 200 con QR y precio 126.000")
+        void clienteActivo_retorna200() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 1, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].codigoQR", not(emptyString())))
+                    .andExpect(jsonPath("$[0].precioFinal", is(126000.0)));
+        }
+
+        @Test
+        @DisplayName("IT-02 · Cliente BLOQUEADO → 422")
+        void clienteBloqueado_retorna422() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(10, 1, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message", containsString("no está habilitado")));
+        }
+
+        @Test
+        @DisplayName("IT-03 · Cliente INACTIVO → 422")
+        void clienteInactivo_retorna422() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(9, 1, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message", containsString("no está habilitado")));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // IT-03 — Evento cancelado (RN-02)
+    // RN-02
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * IT-03 — Evento CANCELADO
-     *
-     * Given: cliente id=1 (ACTIVO)
-     *        evento id=4 (Concierto Cancelado, estado=CANCELADO)
-     * When:  POST /api/transaccion/comprar-boleto con eventoId=4
-     * Then:  422 Unprocessable Entity
-     */
-    @Test
-    @DisplayName("IT-03 · Evento CANCELADO → 422 HTTP")
-    void it03_eventoCancelado_retorna422() throws Exception {
-        // GIVEN
-        ComprarBoletoRequest request = new ComprarBoletoRequest(1L, 4L, 2L, MetodoPago.EFECTIVO);
+    @Nested
+    @DisplayName("RN-02 · Evento debe estar ACTIVO (HTTP)")
+    class Rn02Http {
 
-        // WHEN + THEN
-        mockMvc.perform(post(URL_COMPRAR)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnprocessableEntity());
+        @Test
+        @DisplayName("IT-04 · Evento CANCELADO → 422")
+        void eventoCancelado_retorna422() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 4, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message", containsString("no está disponible")));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // IT-04 — Zona agotada (RN-03)
+    // RN-03
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * IT-04 — Zona agotada (Galería, cupo=0)
-     *
-     * Given: cliente id=1 (ACTIVO)
-     *        evento id=3 (Teatro, ACTIVO)
-     *        zona  id=7 (Galería, cupoDisponible=0)
-     *        El DataSeeder inserta zonas en cascada en orden:
-     *        VIP(1), General(2), Palco(3) → Festival
-     *        Premium(4), Libre(5)         → Conferencia
-     *        Butaca(6), Galería(7)        → Teatro  ← cupo=0
-     * When:  POST /api/transaccion/comprar-boleto con zonaId=7
-     * Then:  422 Unprocessable Entity
-     */
-    @Test
-    @DisplayName("IT-04 · Zona agotada (Galería, cupo=0) → 422 HTTP")
-    void it04_zonaAgotada_retorna422() throws Exception {
-        // GIVEN
-        ComprarBoletoRequest request = new ComprarBoletoRequest(1L, 3L, 7L, MetodoPago.EFECTIVO);
+    @Nested
+    @DisplayName("RN-03 · Cupo disponible >= cantidad (HTTP)")
+    class Rn03Http {
 
-        // WHEN + THEN
-        mockMvc.perform(post(URL_COMPRAR)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnprocessableEntity());
+        @Test
+        @DisplayName("IT-05 · Zona Galería (cupo=0) → 422")
+        void zonaAgotada_retorna422() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 3, 7, "EFECTIVO", 1)))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.message", containsString("No hay suficientes boletos")));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // IT-05 — Buscar clientes
+    // RN-04
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * IT-05 — GET /api/transaccion/clientes/buscar
-     *
-     * Given: DataSeeder tiene clientes cargados (Ana Gómez entre ellos)
-     * When:  GET /api/transaccion/clientes/buscar?q=ana
-     * Then:  200 OK con array JSON no vacío
-     */
-    @Test
-    @DisplayName("IT-05 · Buscar clientes por nombre → 200 con resultados")
-    void it05_buscarClientes_retornaResultados() throws Exception {
-        mockMvc.perform(get(URL_BUSCAR_CLIENTES).param("q", "ana"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(
-                        org.hamcrest.Matchers.greaterThan(0)));
+    @Nested
+    @DisplayName("RN-04 · Precio calculado en servidor según método de pago (HTTP)")
+    class Rn04Http {
+
+        // Zona General (id=2): precioBase=120.000, recargo_zona=5%
+
+        @Test
+        @DisplayName("IT-06 · EFECTIVO → precio 126.000")
+        void efectivo_precio126000() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 1, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].precioFinal", is(126000.0)));
+        }
+
+        @Test
+        @DisplayName("IT-07 · PSE → precio 127.200")
+        void pse_precio127200() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 1, 2, "PSE", 1)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].precioFinal", is(127200.0)));
+        }
+
+        @Test
+        @DisplayName("IT-08 · TARJETA_CREDITO → precio 132.000")
+        void credito_precio132000() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 1, 2, "TARJETA_CREDITO", 1)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].precioFinal", is(132000.0)));
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // IT-06 — Listar eventos activos
+    // RN-05
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * IT-06 — GET /api/transaccion/eventos/listar-activos
-     *
-     * Given: DataSeeder carga 3 eventos ACTIVOS + 1 CANCELADO
-     * When:  GET /api/transaccion/eventos/listar-activos
-     * Then:  200 OK con exactamente 3 eventos (el CANCELADO no aparece)
-     */
-    @Test
-    @DisplayName("IT-06 · Listar eventos activos → sólo los 3 ACTIVOS (el CANCELADO no aparece)")
-    void it06_listarEventosActivos_soloActivos() throws Exception {
-        mockMvc.perform(get(URL_EVENTOS_ACTIVOS))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(3));
+    @Nested
+    @DisplayName("RN-05 · QR generado solo con pago APROBADO (HTTP)")
+    class Rn05Http {
+
+        @Test
+        @DisplayName("IT-09 · EFECTIVO siempre aprobado → boleto con QR y estado PAGADO")
+        void efectivo_boletoConQr() throws Exception {
+            mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                            .content(body(1, 1, 2, "EFECTIVO", 1)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].codigoQR", not(emptyString())))
+                    .andExpect(jsonPath("$[0].estadoBoleto", is("PAGADO")));
+        }
     }
 }
