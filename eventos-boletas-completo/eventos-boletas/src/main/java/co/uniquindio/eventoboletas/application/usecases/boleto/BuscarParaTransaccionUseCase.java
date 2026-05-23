@@ -32,12 +32,31 @@ public class BuscarParaTransaccionUseCase {
             .toList();
     }
 
+    /** Solo ACTIVOS — usado internamente si se necesita filtrar. */
     @Transactional(readOnly = true)
     public List<EventoResponse> buscarEventosActivos() {
         return eventoRepository.buscarActivos().stream()
             .map(this::toEventoResponse)
             .toList();
     }
+
+    // ── NUEVO ─────────────────────────────────────────────────────────────────
+    /**
+     * Todos los eventos (ACTIVO, CANCELADO, AGOTADO) para la pantalla de compra.
+     * El front-end usa el campo {@code estado} para:
+     *  - ACTIVO   → seleccionable normalmente.
+     *  - CANCELADO → visible pero completamente bloqueado (no se puede seleccionar).
+     *  - AGOTADO  → zonas seleccionables pero con aviso inline de agotamiento
+     *               cuando cupoDisponible == 0 en esa zona específica.
+     */
+    @Transactional(readOnly = true)
+    public List<EventoResponse> listarTodosParaVista() {
+        return eventoRepository.buscarTodos().stream()
+            .map(this::toEventoResponse)
+            .toList();
+    }
+
+    // ── Mappers ───────────────────────────────────────────────────────────────
 
     private ClienteResponse toClienteResponse(Cliente c) {
         return new ClienteResponse(c.getId(), c.getNombre(), c.getApellido(),

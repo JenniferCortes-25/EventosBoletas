@@ -40,6 +40,13 @@ public class EventoRepositoryAdapter implements EventoRepository {
             .stream().map(this::toDomain).toList();
     }
 
+    // ── NUEVO ─────────────────────────────────────────────────────────────────
+    @Override
+    public List<Evento> buscarTodos() {
+        return jpaRepository.findAllWithZonas()
+            .stream().map(this::toDomain).toList();
+    }
+
     // ── Mappers ───────────────────────────────────────────────────────────────
 
     private Evento toDomain(EventoJpa jpa) {

@@ -16,4 +16,12 @@ public interface EventoJpaRepository extends JpaRepository<EventoJpa, Long> {
 
     @Query("SELECT e FROM EventoJpa e LEFT JOIN FETCH e.zonas WHERE e.id = :id")
     Optional<EventoJpa> findByIdWithZonas(@Param("id") Long id);
+
+    // ── NUEVO ─────────────────────────────────────────────────────────────────
+    /**
+     * Trae TODOS los eventos (ACTIVO, CANCELADO, AGOTADO) con sus zonas,
+     * ordenados por fecha ascendente para la pantalla de compra.
+     */
+    @Query("SELECT e FROM EventoJpa e LEFT JOIN FETCH e.zonas ORDER BY e.fecha ASC")
+    List<EventoJpa> findAllWithZonas();
 }

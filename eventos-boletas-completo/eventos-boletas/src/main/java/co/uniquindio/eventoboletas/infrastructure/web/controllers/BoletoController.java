@@ -51,18 +51,42 @@ public class BoletoController {
         return ResponseEntity.ok(buscarUseCase.buscarClientes(q));
     }
 
+    /**
+     * ── ENDPOINT ANTERIOR (mantenido por compatibilidad) ──────────────────────
+     * Solo devuelve ACTIVOS. Se conserva para no romper integraciones previas.
+     */
     @Operation(
-        summary = "Listar eventos activos con zonas y precios",
-        description = "Devuelve los eventos en estado ACTIVO con sus zonas, cupo disponible " +
-                      "y precio base. El precio final se calcula al momento de la compra " +
-                      "según el método de pago elegido. (RF-02 / RF-03)"
+        summary = "Listar eventos ACTIVOS con zonas y precios (legado)",
+        description = "Devuelve únicamente los eventos en estado ACTIVO. " +
+                      "Usar /listar-todos para la pantalla de compra completa."
     )
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Lista de eventos activos con zonas")
-    })
     @GetMapping("/eventos/listar-activos")
     public ResponseEntity<List<EventoResponse>> listarEventosActivos() {
         return ResponseEntity.ok(buscarUseCase.buscarEventosActivos());
+    }
+
+    // ── NUEVO ─────────────────────────────────────────────────────────────────
+    /**
+     * Endpoint principal para la pantalla de compra.
+     * Devuelve TODOS los eventos (ACTIVO, CANCELADO, AGOTADO) con sus zonas.
+     *
+     * El front-end interpreta el campo {@code estado} así:
+     *  - ACTIVO    → evento y zonas seleccionables.
+     *  - CANCELADO → card visible pero completamente no interactiva.
+     *  - AGOTADO   → zonas seleccionables pero si cupoDisponible == 0 el front
+     *                muestra un mensaje inline (no bloquea el clic).
+     */
+    @Operation(
+        summary = "Listar todos los eventos para la vista de compra",
+        description = "Devuelve eventos ACTIVO, CANCELADO y AGOTADO con sus zonas y cupo. " +
+                      "El estado del evento controla la interactividad en el front-end. (RF-02 / RF-03)"
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Lista de todos los eventos con zonas")
+    })
+    @GetMapping("/eventos/listar-todos")
+    public ResponseEntity<List<EventoResponse>> listarTodosLosEventos() {
+        return ResponseEntity.ok(buscarUseCase.listarTodosParaVista());
     }
 
     @Operation(

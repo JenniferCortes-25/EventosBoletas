@@ -14,5 +14,14 @@ public interface EventoRepository {
 
     Optional<Evento> buscarPorId(Long id);
 
+    /** Solo los ACTIVOS — usado por la validación de compra (RN-02). */
     List<Evento> buscarActivos();
+
+    // ── NUEVO ─────────────────────────────────────────────────────────────────
+    /**
+     * Todos los eventos (ACTIVO, CANCELADO, AGOTADO) con sus zonas,
+     * ordenados por fecha. Usado en la pantalla de compra para mostrar
+     * eventos cancelados (no seleccionables) y agotados (zona bloqueada).
+     */
+    List<Evento> buscarTodos();
 }
