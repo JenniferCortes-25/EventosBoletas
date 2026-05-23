@@ -8,6 +8,7 @@ import co.uniquindio.eventoboletas.domain.entities.Cliente;
 import co.uniquindio.eventoboletas.domain.entities.Evento;
 import co.uniquindio.eventoboletas.domain.entities.Pago;
 import co.uniquindio.eventoboletas.domain.entities.Zona;
+import co.uniquindio.eventoboletas.domain.enums.EstadoPago;
 import co.uniquindio.eventoboletas.domain.exceptions.EntidadNoEncontradaException;
 import co.uniquindio.eventoboletas.domain.repositories.BoletoRepository;
 import co.uniquindio.eventoboletas.domain.repositories.ClienteRepository;
@@ -74,11 +75,24 @@ public class ComprarBoletoUseCase {
         zona.verificarCupoDisponible(); // RN-03
         var precioFinal = zona.calcularPrecioFinal(); // RN-04: siempre en servidor
 
-        // P7: Registrar Pago con estado APROBADO
-        Pago pago = Pago.crear(precioFinal, request.metodoPago());
+        // P7: Simular procesamiento del pago según método
+        EstadoPago estadoPago = switch (request.metodoPago()) {
+            case EFECTIVO      -> EstadoPago.APROBADO;          // siempre aprueba
+            case TARJETA_DEBITO  -> Math.random() < 0.85
+                    ? EstadoPago.APROBADO : EstadoPago.RECHAZADO;
+            case TARJETA_CREDITO -> Math.random() < 0.90
+                    ? EstadoPago.APROBADO : EstadoPago.RECHAZADO;
+            case PSE           -> Math.random() < 0.80
+                    ? EstadoPago.APROBADO : EstadoPago.RECHAZADO;
+            case TRANSFERENCIA -> Math.random() < 0.75
+                    ? EstadoPago.APROBADO : EstadoPago.RECHAZADO;
+        };
 
-        // P9: Emitir Boleto (RN-05: sólo si pago APROBADO)
+        Pago pago = Pago.crear(precioFinal, request.metodoPago(), estadoPago);
+
+        // P9: RN-05 — Boleto solo se emite si el pago fue aprobado
         Boleto boleto = Boleto.emitir(precioFinal, cliente.getId(), zona.getId(), pago);
+
 
         // Reducir cupo de la zona (invariante)
         zona.reducirCupo();

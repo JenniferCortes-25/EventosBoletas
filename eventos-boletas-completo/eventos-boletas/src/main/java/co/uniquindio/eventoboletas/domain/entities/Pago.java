@@ -32,8 +32,9 @@ public class Pago {
         this.estado = Objects.requireNonNull(estado);
     }
 
-    public static Pago crear(BigDecimal monto, MetodoPago metodoPago) {
-        return new Pago(null, monto, metodoPago, LocalDateTime.now(), EstadoPago.APROBADO);
+    public static Pago crear(BigDecimal monto, MetodoPago metodoPago, EstadoPago estado) {
+        
+        return new Pago(null, monto, metodoPago, LocalDateTime.now(), estado);
     }
 
     public static Pago reconstituir(Long id, BigDecimal monto, MetodoPago metodoPago,

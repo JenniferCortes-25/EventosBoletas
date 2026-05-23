@@ -44,26 +44,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
-    /** RN-01, RN-02, RN-03, RN-05, RN-06, RN-07: reglas de negocio violadas */
     @ExceptionHandler(ReglaDeNegocioException.class)
-    public ResponseEntity<Map<String, Object>> handleReglaNegocio(ReglaDeNegocioException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now().toString());
-        body.put("status", 422);
-        body.put("error", "Regla de negocio");
-        body.put("mensaje", ex.getMessage());
-        return ResponseEntity.unprocessableEntity().body(body);
+    public ResponseEntity<Map<String, String>> handleReglaDeNegocio(ReglaDeNegocioException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+            .body(Map.of("message", ex.getMessage()));
     }
 
-    /** Entidad no encontrada */
     @ExceptionHandler(EntidadNoEncontradaException.class)
-    public ResponseEntity<Map<String, Object>> handleNoEncontrado(EntidadNoEncontradaException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("timestamp", LocalDateTime.now().toString());
-        body.put("status", 404);
-        body.put("error", "Entidad no encontrada");
-        body.put("mensaje", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    public ResponseEntity<Map<String, String>> handleNoEncontrada(EntidadNoEncontradaException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("message", ex.getMessage()));
     }
 
     /** Fallback */

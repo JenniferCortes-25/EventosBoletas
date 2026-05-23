@@ -5,7 +5,7 @@
 **Escenario 7A:** Comprar Boleto (Cliente, Evento, Zona, Boleto, Pago)
 
 **Integrantes:**
-- Sara María Otero Echeverri
+- Sara María Otero Echeverri - 1091203101
 - Sara Valentina Acosta Burbano — 1080044648
 - Jennifer Andrea Cortés Chavarro — 1090273061
 
@@ -146,8 +146,6 @@ src/
 
 ### Paso 1 — Descomprimir el proyecto
 
-```bash
-unzip eventos-boletas-completo.zip
 cd eventos-boletas-completo/eventos-boletas
 ```
 
